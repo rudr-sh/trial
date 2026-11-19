@@ -1,5 +1,6 @@
 import { inject } from '@vercel/analytics';
-
+import './allocation.css';
+import { initAllocation } from './allocation.js';
 import navbarHtml from './sections/01-navbar.html?raw';
 import heroHtml from './sections/02-hero.html?raw';
 import aboutHtml from './sections/03-about.html?raw';
@@ -238,6 +239,7 @@ async function bootstrap() {
 
   // 🔥 REQUIRED
   initScheduleTimeline();
+  initAllocation();
 }
 
 bootstrap();
