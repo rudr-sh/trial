@@ -1,18 +1,31 @@
-// Usage: node loadtest.mjs <baseUrl> <users> <arrivalWindowMs> [teams]
-// Example: node loadtest.mjs https://trial-psi-jet.vercel.app 750 60000
+// Usage: node loadtest.mjs <baseUrl> <users> <arrivalWindowMs> [teams] [spike]
+//
+// Examples:
+//   node loadtest.mjs https://trial-psi-jet.vercel.app 300 60000 150
+//   node loadtest.mjs https://trial-psi-jet.vercel.app 300 10000 150 spike
+//   node loadtest.mjs https://trial-psi-jet.vercel.app 300 3000 150
 //
 // Simulates USERS people arriving at random moments inside the arrival window.
-// Each user belongs to team "Test<n>" (n = 1..TEAMS), so ~4 users share a team.
+// Each user belongs to team "Test<n>" (n = 1..TEAMS), so ~2 users share a team at 300 users / 150 teams.
 // Flow per user: GET /api/problems -> (think time) -> POST /api/claim, retry if the problem was taken.
+//
+// "spike" mode front-loads arrivals (like a real announcement): about half the users
+// arrive in the first ~12% of the window.
+//
+// RESET the database before every run:
+//   update teams set problem_id = null;
+//   update problems set claimed_by = null;
 
 const BASE = (process.argv[2] || 'https://trial-psi-jet.vercel.app').replace(/\/$/, '');
-const USERS = parseInt(process.argv[3]) || 750;
+const USERS = parseInt(process.argv[3]) || 300;
 const WINDOW_MS = parseInt(process.argv[4]) || 60000;
-const TEAMS = parseInt(process.argv[5]) || 180;
+const TEAMS = parseInt(process.argv[5]) || 150;
+const SPIKE = process.argv[6] === 'spike' || !!process.env.SPIKE;
 
-const THINK_MIN_MS = 500;   // time a human takes to pick from the dropdown
+const THINK_MIN_MS = 500;    // time a human takes to pick from the dropdown
 const THINK_MAX_MS = 2500;
 const MAX_ATTEMPTS = 8;
+const REQUEST_TIMEOUT_MS = 30000;
 
 const stats = {
   ok: 0, already: 0, takenRetries: 0, noProblems: 0, errors: 0, requests: 0,
@@ -25,18 +38,20 @@ const errorSamples = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const rand = (a, b) => a + Math.random() * (b - a);
 
-async function call(kind, url, opts) {
+async function call(kind, url, opts = {}) {
   const t = performance.now();
   stats.requests++;
+  const bucket = kind === 'get' ? latGet : latPost;
   try {
-    const r = await fetch(url, opts);
+    const r = await fetch(url, { ...opts, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     const d = await r.json().catch(() => ({}));
-    (kind === 'get' ? latGet : latPost).push(performance.now() - t);
+    bucket.push(performance.now() - t);
     statusCount[r.status] = (statusCount[r.status] || 0) + 1;
     return { status: r.status, d };
   } catch (e) {
-    (kind === 'get' ? latGet : latPost).push(performance.now() - t);
-    statusCount.network = (statusCount.network || 0) + 1;
+    bucket.push(performance.now() - t);
+    const key = e && e.name === 'TimeoutError' ? 'timeout' : 'network';
+    statusCount[key] = (statusCount[key] || 0) + 1;
     return { status: 0, d: { error: String(e && e.message ? e.message : e) } };
   }
 }
@@ -47,7 +62,8 @@ function fail(msg) {
 }
 
 async function user(i) {
-  await sleep(Math.random() * WINDOW_MS); // arrival time
+  const skew = SPIKE ? Math.pow(Math.random(), 3) : Math.random();
+  await sleep(skew * WINDOW_MS); // arrival time
   const team = 'Test' + (1 + (i % TEAMS));
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -82,7 +98,7 @@ const summary = (arr) => {
 };
 
 console.log(`Target: ${BASE}`);
-console.log(`Users: ${USERS} | arrival window: ${WINDOW_MS} ms | teams: ${TEAMS}\n`);
+console.log(`Users: ${USERS} | arrival window: ${WINDOW_MS} ms | teams: ${TEAMS} | spike: ${SPIKE}\n`);
 
 const start = performance.now();
 await Promise.all(Array.from({ length: USERS }, (_, i) => user(i)));
@@ -115,4 +131,8 @@ console.log(
   pass ? 'PASS' : 'FAIL',
   `(errors=0: ${stats.errors === 0}, claims=${expectedClaims}: ${stats.ok === expectedClaims}, median<1s: ${median < 1000}, p95<3s: ${p95 < 3000})`
 );
+console.log('\nNow verify in Supabase (both counts should equal ' + expectedClaims + ', third query returns no rows):');
+console.log('  select count(*) from teams where problem_id is not null;');
+console.log('  select count(*) from problems where claimed_by is not null;');
+console.log('  select problem_id, count(*) from teams where problem_id is not null group by problem_id having count(*) > 1;');
 process.exit(pass ? 0 : 1);
