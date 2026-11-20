@@ -88,9 +88,20 @@
   color: var(--white);
   border-bottom-color: rgba(255,255,255,0.45);
 }
-.contact-card:last-child:nth-child(odd) {
-  grid-column: 1 / -1;
+
+/* Desktop: if the number of cards is odd, last card spans full width and is centered */
+@media (min-width: 769px) {
+  .contact-card:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+    align-items: center;
+    text-align: center;
+  }
+
+  .contact-card:last-child:nth-child(odd) .contact-phone {
+    align-self: center;
+  }
 }
+
 @media (max-width: 768px) {
   .contact-grid {
     grid-template-columns: 1fr;
@@ -124,10 +135,10 @@
         <p class="contact-name">Vaishnavi Rai</p>
         <a href="tel:+918866559858" class="contact-phone">+91 8866559858</a>
       </article>
-       <article class="contact-card reveal reveal-delay-3">
+      <article class="contact-card reveal reveal-delay-3">
         <p class="contact-role">Student Coordinator</p>
         <p class="contact-name">Pranav</p>
-        <a href="tel:+918866559858" class="contact-phone">+91 8866559858</a>
+        <a href="tel:+918866559858" class="contact-phone">+91 7975565870</a>
       </article>
     </div>
   </div>
