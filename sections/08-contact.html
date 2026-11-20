@@ -88,7 +88,9 @@
   color: var(--white);
   border-bottom-color: rgba(255,255,255,0.45);
 }
-
+.contact-card:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
 @media (max-width: 768px) {
   .contact-grid {
     grid-template-columns: 1fr;
